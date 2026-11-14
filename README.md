@@ -30,3 +30,5 @@ For more information/download dataset : https://www.sutd.edu.sg/itrust/itrust-la
 ## To Run 
 > Note: Please request to download dataset from iTRUST website, and put A2 dataset into this folder to run notebooks.  
 > > File Name: [**WADI.A2_19 Nov 2019**]
+> 
+> Place 'WADI_14days_new.csv' and 'WADI_attackdataLABLE.csv' into 'dataset' folder. These two files have been .gitignore -d
