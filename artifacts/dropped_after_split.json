@@ -1,3 +1,4 @@
 {
+  "2B_AIT_002_PV": "persistent level shift in the attack file: from 2017-10-10 15:49:40 to the end (~9,400 of 17,281 test rows, only ~400 labelled attack) it sits ~68,500 train-std above normal. This is a sensor/data-quality fault, not an attack signature; it would make every later window look anomalous (covers attacks A7-A14). Decision taken from inspecting the test file, so disclose in the report.",
   "3_AIT_001_PV": "near-constant in train (3 unique values, raw std ~3e-6) but active in val (scaled up to 58,825); flat in test; KS_attack 0.028 so no attack signal"
 }
