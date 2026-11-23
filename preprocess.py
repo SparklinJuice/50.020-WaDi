@@ -22,6 +22,14 @@ from sklearn.preprocessing import StandardScaler
 RANDOM_SEED = 42
 np.random.seed(RANDOM_SEED)
 
+# Sensors dropped regardless of the generic scan, with the reason recorded.
+FORCE_DROP_AFTER_SPLIT = {
+    "3_AIT_001_PV": (
+        "near-constant in train (3 unique values, raw std ~3e-6) but active in val "
+        "(scaled up to 58,825); flat in test; KS_attack 0.028 so no attack signal"
+    ),
+}
+
 
 def load_wadi_csv(path: Path | str, nrows: int | None = None) -> pd.DataFrame:
     """Load a WaDi CSV, handling the attack file's extra header line."""
@@ -417,6 +425,31 @@ def preprocess(root: Path | None = None) -> dict[str, pd.DataFrame]:
     val, _ = fill_split_with_median(val, final_features, train_medians)
     test, _ = fill_split_with_median(test, final_features, train_medians)
 
+    # Post-split degeneracy scan. A feature that is (near-)constant in TRAIN but
+    # active in val/test gets a tiny scaler std and explodes after scaling
+    # (e.g. 3_AIT_001_PV reached |z| ~ 58,825 in val). Decide on TRAIN stats only.
+    discrete_set = set(discrete)
+    dropped_after_split: dict[str, str] = {}
+    scan_rows = []
+    for c in final_features:
+        tr_std = float(train[c].std(ddof=0))
+        tr_nuniq = int(train[c].nunique())
+        scan_rows.append((c, tr_std, tr_nuniq))
+        if c in FORCE_DROP_AFTER_SPLIT:
+            dropped_after_split[c] = FORCE_DROP_AFTER_SPLIT[c]
+        elif c not in discrete_set and (tr_nuniq <= 5 or tr_std < 1e-4):
+            dropped_after_split[c] = (
+                f"degenerate in train (unique={tr_nuniq}, raw std={tr_std:.3g}); "
+                "scaled values would explode in val/test"
+            )
+        elif c in discrete_set and (tr_nuniq <= 1 or tr_std < 1e-4):
+            print(f"REPORT (discrete, kept): {c} train unique={tr_nuniq}, std={tr_std:.3g}")
+    if dropped_after_split:
+        print(f"Dropping {len(dropped_after_split)} degenerate feature(s) after split:")
+        for c, why in dropped_after_split.items():
+            print(f"  - {c}: {why}")
+    final_features = [c for c in final_features if c not in dropped_after_split]
+
     # StandardScaler is appropriate here because the EDA mixes continuous ranges
     # and train-only scaling prevents validation/test distribution leakage.
     scaler = StandardScaler()
@@ -426,6 +459,21 @@ def preprocess(root: Path | None = None) -> dict[str, pd.DataFrame]:
     train[final_features] = train_values.astype(np.float32)
     val[final_features] = val_values.astype(np.float32)
     test[final_features] = test_values.astype(np.float32)
+    train = train.drop(columns=list(dropped_after_split))
+    val = val.drop(columns=list(dropped_after_split))
+    test = test.drop(columns=list(dropped_after_split))
+
+    # Scan table: worst scaled excursions in val/test (report only above 20).
+    scan = pd.DataFrame(scan_rows, columns=["feature", "train_raw_std", "train_unique"])
+    scan = scan[scan["feature"].isin(final_features)].set_index("feature")
+    scan["max_abs_val"] = pd.Series(np.abs(val_values).max(axis=0), index=final_features)
+    scan["max_abs_test"] = pd.Series(np.abs(test_values).max(axis=0), index=final_features)
+    scan["worst"] = scan[["max_abs_val", "max_abs_test"]].max(axis=1)
+    print("Top 15 features by max |scaled| in val/test:")
+    print(scan.sort_values("worst", ascending=False).head(15).to_string())
+    flagged = scan[scan["worst"] > 20].sort_values("worst", ascending=False)
+    print(f"{len(flagged)} feature(s) with max |scaled| > 20 (kept, review manually):")
+    print(", ".join(flagged.index) if len(flagged) else "none")
 
     processed_dir = root / "data" / "processed"
     artifact_dir = root / "artifacts"
@@ -437,6 +485,9 @@ def preprocess(root: Path | None = None) -> dict[str, pd.DataFrame]:
     joblib.dump(scaler, artifact_dir / "scaler.joblib")
     (artifact_dir / "feature_names.json").write_text(
         json.dumps(final_features, indent=2), encoding="utf-8"
+    )
+    (artifact_dir / "dropped_after_split.json").write_text(
+        json.dumps(dropped_after_split, indent=2), encoding="utf-8"
     )
     (artifact_dir / "rule_sensors.json").write_text(
         json.dumps(rule_sensors, indent=2), encoding="utf-8"

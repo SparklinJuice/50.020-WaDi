@@ -46,3 +46,11 @@ timestamp,label,score,err_<feature1>,err_<feature2>,...
 - `label`: evaluation label
 - `score`: model anomaly score
 - `err_<feature>`: one reconstruction/error column per final feature
+
+## Post-split degenerate feature drop
+After the chronological split, `preprocess.py` scans every feature on TRAIN statistics only.
+Continuous features with <= 5 unique train values or raw train std < 1e-4 are dropped, plus
+`3_AIT_001_PV` explicitly (near-constant in train, scaled values up to ~58,825 in val, flat in test,
+KS_attack 0.028). Dropped features and reasons are in `artifacts/dropped_after_split.json`.
+The final feature count is printed by `python preprocess.py` and stored in `artifacts/feature_names.json`
+(expected 85 or fewer, was 86). Features with max |scaled| > 20 in val/test are printed for manual review.

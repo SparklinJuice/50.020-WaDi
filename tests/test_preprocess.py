@@ -118,6 +118,21 @@ def test_expected_artifacts_exist_when_pipeline_has_been_run():
             assert segment_diffs.eq(10).all()
 
 
+def test_no_exploding_features_after_scaling():
+    root = Path(__file__).resolve().parents[1]
+    processed = root / "data" / "processed"
+    if not (processed / "train.parquet").exists():
+        pytest.skip("Pipeline outputs not generated")
+    names = json.loads((root / "artifacts" / "feature_names.json").read_text())
+    assert "3_AIT_001_PV" not in names
+    config = json.loads((root / "wadi_feature_config.json").read_text())
+    discrete = set(config["discrete"])
+    for split in ("val", "test"):
+        df = pd.read_parquet(processed / f"{split}.parquet")
+        cont = [c for c in names if c not in discrete]
+        assert df[cont].abs().max().max() < 1000, split
+
+
 def test_flattened_summary_shape():
     X = np.arange(60, dtype=np.float32).reshape(3, 4, 5)
     summary = preprocess.flatten_window_summary(X)
