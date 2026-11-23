@@ -134,3 +134,23 @@ def test_catalogue_attack_count_is_reported_not_silently_reconciled():
     result = preprocess.count_attack_catalogue_matches(synthetic_test, root)
     assert result["catalogue_attacks"] == len(catalogue) == 14
     assert result["test_attack_runs"] == 2
+
+
+def test_downsample_mean_max_and_attack_label():
+    timestamps = pd.date_range("2020-01-01", periods=30, freq="1s")
+    frame = pd.DataFrame({
+        "timestamp": timestamps,
+        "continuous_sensor": np.r_[np.arange(10), np.arange(10) + 20, np.arange(10) + 40],
+        "discrete_sensor": np.r_[np.ones(10), np.full(10, 2), np.full(10, 3)],
+        "label": np.r_[np.zeros(10), np.array([0, 0, 0, 0, 1, 0, 0, 0, 0, 0]), np.zeros(10)],
+    })
+    result = preprocess.downsample(
+        frame,
+        continuous=["continuous_sensor"],
+        discrete=["discrete_sensor"],
+    )
+
+    assert len(result) == 3
+    assert result["continuous_sensor"].tolist() == pytest.approx([4.5, 24.5, 44.5])
+    assert result["discrete_sensor"].tolist() == [1, 2, 3]
+    assert result["label"].tolist() == [0, 1, 0]
