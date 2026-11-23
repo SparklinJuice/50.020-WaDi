@@ -13,8 +13,9 @@
 ## Data layout
 
 Each processed parquet file contains `timestamp`, `label`, and the ordered model feature
-columns. Timestamps are UTC-naive pandas timestamps at 10-second intervals. Labels use
-`1` for attack and `0` for normal.
+columns plus `segment_id`. Timestamps are UTC-naive pandas timestamps; normal data may
+contain calendar gaps. A positive diff that is not 10 seconds starts a gap and a new
+segment. Labels use `1` for attack and `0` for normal.
 
 The config currently declares 86 modelling features: 67 continuous plus 26 discrete
 entries overlap conceptually; after all-NaN, constant-normal, and monotonic-totaliser
@@ -23,10 +24,15 @@ removal, `artifacts/feature_names.json` is the authoritative final column count.
 ## Windows
 
 `make_windows(df, size=20, stride=1)` creates 200-second windows on default settings.
-Windows are generated independently within train, validation, and test. A window is
-labelled `1` if any 10-second step inside it is attacked. `flatten_window_summary(X)`
+Windows are generated independently within train, validation, and test, and never cross
+`segment_id` boundaries. Segments shorter than 20 rows are excluded before windowing.
+A window is labelled `1` if any 10-second step inside it is attacked. `flatten_window_summary(X)`
 returns mean, standard deviation, minimum, maximum, and last-step summaries for
 Isolation Forest.
+
+For the current real-data outputs, default-window counts are: train 62,729 windows
+(0.00% attack-labelled), validation 15,673 windows (0.00%), and test 17,262 windows
+(7.39% attack-labelled).
 
 ## Planned score file
 

@@ -23,6 +23,32 @@ def test_make_windows_stays_within_split():
     assert ends[-1] == df["timestamp"].iloc[-1]
 
 
+def test_make_windows_does_not_cross_segment_ids():
+    df = pd.DataFrame({
+        "timestamp": pd.to_datetime([
+            "2020-01-01 00:00:00", "2020-01-01 00:00:10",
+            "2020-01-01 00:00:20", "2020-01-01 00:01:00",
+            "2020-01-01 00:01:10", "2020-01-01 00:01:20",
+        ]),
+        "label": np.array([0, 0, 0, 1, 1, 1]),
+        "segment_id": np.array([0, 0, 0, 1, 1, 1]),
+        "sensor": np.arange(6),
+    })
+    X, y, ends = preprocess.make_windows(df, size=2, stride=1)
+    assert X.shape == (4, 2, 1)
+    assert y.tolist() == [0, 0, 1, 1]
+
+
+def test_make_windows_never_reads_across_split_gap():
+    root = Path(__file__).resolve().parents[1]
+    processed = root / "data" / "processed"
+    if not (processed / "train.parquet").exists():
+        pytest.skip("Raw WaDi CSVs are not present")
+    train = pd.read_parquet(processed / "train.parquet")
+    X, y, ends = preprocess.make_windows(train, size=20, stride=1)
+    assert len(X) > 0
+
+
 def test_make_windows_array_preserves_feature_shape():
     values = np.arange(30, dtype=np.float32).reshape(10, 3)
     label_values = np.r_[np.zeros(8, dtype=int), np.ones(2, dtype=int)]
@@ -78,13 +104,18 @@ def test_expected_artifacts_exist_when_pipeline_has_been_run():
     feature_names = json.loads((artifacts / "feature_names.json").read_text())
     scaler = joblib.load(artifacts / "scaler.joblib")
 
-    assert set(feature_names) == set(train.columns) - {"timestamp", "label"}
+    assert set(feature_names) == set(train.columns) - {"timestamp", "label", "segment_id"}
     assert all(len(scaler.mean_) == len(feature_names) for _ in [0])
     for df in (train, val, test):
         assert not df.isna().any().any()
         assert set(df["label"].unique()).issubset({0, 1})
         assert df["timestamp"].is_monotonic_increasing
-        assert df["timestamp"].diff().dropna().eq(pd.Timedelta(seconds=10)).all()
+        diffs = df["timestamp"].diff().dropna().dt.total_seconds()
+        assert (diffs > 0).all()
+        assert (diffs % 10 == 0).all()
+        for _, segment in df.groupby("segment_id"):
+            segment_diffs = segment["timestamp"].diff().dropna().dt.total_seconds()
+            assert segment_diffs.eq(10).all()
 
 
 def test_flattened_summary_shape():
